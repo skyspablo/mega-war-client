@@ -23,7 +23,8 @@ jobs:
 
       - name: Get vcpkg commit ID
         id: vcpkg-step
-        run: echo "id=$(grep '.builtin-baseline' vcpkg.json | awk -F: '{print $2}' | tr -d '," ')" >> $GITHUB_OUTPUT
+        run: |
+          echo "id=$(grep '.builtin-baseline' vcpkg.json | awk -F: '{print $2}' | tr -d '," ')" >> $GITHUB_OUTPUT
 
       - uses: actions/setup-python@v5
         id: python
