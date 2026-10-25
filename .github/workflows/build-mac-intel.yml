@@ -1,0 +1,78 @@
+# Compila OTClient (opentibiabr) para macOS Intel (x86_64). Se lanza a mano:
+#   gh workflow run build-mac-intel.yml -R skyspablo/mega-war-client [-f ref=<commit>]
+name: Build macOS Intel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit/rama de opentibiabr/otclient
+        default: 1fcea26f23ef1d1857103ef446c0190955523ca8
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: opentibiabr/otclient
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Get vcpkg commit ID
+        id: vcpkg-step
+        run: echo "id=$(grep '.builtin-baseline' vcpkg.json | awk -F: '{print $2}' | tr -d '," ')" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-python@v5
+        id: python
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-x64-osx-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-x64-osx-
+
+      - uses: lukka/run-vcpkg@a400452f634fe49e9f18d388aeb1809dcc642136
+        env:
+          VCPKG_PYTHON3: ${{ steps.python.outputs.python-path }}
+        with:
+          vcpkgGitCommitId: ${{ steps.vcpkg-step.outputs.id }}
+          vcpkgJsonGlob: vcpkg.json
+
+      - uses: lukka/get-cmake@v4.3.4
+
+      - name: Configure and Build
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          cmake -G Ninja -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=x64-osx \
+            -DTOGGLE_BIN_FOLDER=ON \
+            -DOPTIONS_ENABLE_IPO=OFF \
+            -DOTCLIENT_BUILD_TESTS=OFF \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG" \
+            -DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" \
+            -DTOGGLE_BOT_PROTECTION=OFF
+          cmake --build build --target otclient
+
+      - name: Bundle
+        run: |
+          cd build/bin
+          file OTClient.app/Contents/MacOS/*
+          xattr -cr OTClient.app
+          codesign --force --deep --sign - OTClient.app
+          ditto -c -k --keepParent OTClient.app otclient-mac-intel.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otclient-mac-intel
+          path: build/bin/otclient-mac-intel.zip
+          if-no-files-found: error
