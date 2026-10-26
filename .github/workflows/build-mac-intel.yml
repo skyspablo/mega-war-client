@@ -1,4 +1,4 @@
-# Compila OTClient (opentibiabr) para macOS Intel (x86_64). Se lanza a mano:
+# Compila OTClient (opentibiabr) para macOS Intel (x86_64), macOS 13.3+ (std::format). Se lanza a mano:
 #   gh workflow run build-mac-intel.yml -R skyspablo/mega-war-client [-f ref=<commit>]
 name: Build macOS Intel
 
@@ -31,11 +31,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/cache@v4
+      # Caché binaria de vcpkg (dependencias tardan ~1 h). Se guarda aunque falle el build.
+      - uses: actions/cache/restore@v4
         with:
-          path: ~/.cache/vcpkg/archives
-          key: vcpkg-x64-osx-${{ hashFiles('vcpkg.json') }}
+          path: ${{ github.workspace }}/../b/vcpkg_cache
+          key: vcpkg-x64-osx-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
           restore-keys: vcpkg-x64-osx-
+
+      # En Intel, Homebrew vive en /usr/local (ruta por defecto del compilador) y su libpng sin APNG
+      # tapa al de vcpkg.
+      - name: Remove Homebrew libpng
+        run: |
+          brew uninstall --ignore-dependencies --force libpng || true
+          ls /usr/local/include | grep -i png || echo "sin png.h en /usr/local/include"
 
       - uses: lukka/run-vcpkg@a400452f634fe49e9f18d388aeb1809dcc642136
         env:
@@ -48,12 +56,13 @@ jobs:
 
       - name: Configure and Build
         env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          MACOSX_DEPLOYMENT_TARGET: "13.3"
         run: |
           cmake -G Ninja -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+            -DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
             -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_TARGET_TRIPLET=x64-osx \
             -DTOGGLE_BIN_FOLDER=ON \
@@ -63,6 +72,12 @@ jobs:
             -DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" \
             -DTOGGLE_BOT_PROTECTION=OFF
           cmake --build build --target otclient
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ${{ github.workspace }}/../b/vcpkg_cache
+          key: vcpkg-x64-osx-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
 
       - name: Bundle
         run: |
